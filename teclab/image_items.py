@@ -1,6 +1,8 @@
 import pyqtgraph as pg
 import numpy as np
 from PyQt5.Qt import Qt
+import matplotlib.pyplot as plt
+from scipy.stats import binned_statistic_2d
 
 from teclab import utils
 
@@ -8,27 +10,36 @@ from teclab import utils
 class TecMapImageItem(pg.ImageItem):
 
     def __init__(self, theta, r, **kwargs):
-        super().__init__(np.zeros((500, 500)), **kwargs)
         self.theta = theta
-        self.delta_theta = (self.theta[1, 1] - self.theta[0, 0]) * 180 / np.pi
         self.r = r
-        self.delta_r = self.r[1, 1] - self.r[0, 0]
-        x = self.r * np.cos(self.theta)
-        self.x_bounds = (x.min(), x.max())
-        y = self.r * np.sin(self.theta)
-        self.y_bounds = (y.min(), y.max())
+
+        self.fig = plt.figure(figsize=(10, 10), dpi=100, tight_layout=True)
+        plt.close(self.fig)
+        self.ax = self.fig.add_subplot(projection='polar')
+        rgba = self.update_and_get_pixels()
+        super().__init__(rgba, opacity=1, border=pg.mkPen('r', width=3), **kwargs)
 
     def set_tec_map(self, tec_map_data):
-        x = np.linspace(*self.x_bounds, 500)
-        y = np.linspace(*self.y_bounds, 500)
-        img_data = utils.polar_to_cart(tec_map_data.T, self.delta_theta, self.delta_r, x, y)
-        self.setImage(img_data)
+        rgba = self.update_and_get_pixels(tec_map_data)
+        self.setImage(rgba)
+
+    def update_and_get_pixels(self, polar_img=None):
+        self.ax.clear()
+        if polar_img is not None:
+            self.ax.pcolormesh(self.theta, self.r, polar_img, vmin=0, vmax=20, shading='nearest')
+            self.ax.grid()
+        self.fig.patch.set_alpha(0)
+        self.ax.patch.set_alpha(0)
+        self.fig.canvas.draw()
+        rgba = np.array(self.fig.canvas.buffer_rgba())
+        plt.close(self.fig)
+        return np.swapaxes(rgba[::-1], 0, 1)
 
 
 class HoverImage(pg.ImageItem):
 
     def __init__(self, image=None, **kargs):
-        pg.ImageItem.__init__(self, image, opacity=1, compositionMode=pg.QtGui.QPainter.CompositionMode_Plus, **kargs)
+        super().__init__(image, opacity=1, compositionMode=pg.QtGui.QPainter.CompositionMode_Plus, **kargs)
         self.setKernel(5)
 
     def setKernel(self, size):
@@ -52,20 +63,44 @@ class HoverImage(pg.ImageItem):
 class DrawingImage(pg.ImageItem):
     colors = {'r': 0, 'g': 1, 'b': 2}
 
-    def __init__(self, c, image=None, **kargs):
-        pg.ImageItem.__init__(self, image, compositionMode=pg.QtGui.QPainter.CompositionMode_Plus, opacity=1, **kargs)
-        self.c = c
-        self.setKernel(5)
+    def __init__(self, c, bg_img_item, **kargs):
+        self.bg_img_item = bg_img_item
+        super().__init__(np.zeros(self.bg_img_item.image.shape[:2] + (3,)),
+                         compositionMode=pg.QtGui.QPainter.CompositionMode_Plus, opacity=1, **kargs)
+        self.color_channel = DrawingImage.colors[c]
+        self.set_kernel(5)
         self.x = None
         self.y = None
 
-    def setKernel(self, size):
+    def reset_img(self):
+        self.setImage(np.zeros_like(self.image))
+
+    def get_labels(self):
+        label_img = np.swapaxes(self.image, 0, 1)[:, :, self.color_channel]
+        y = np.arange(label_img.shape[0])
+        x = np.arange(label_img.shape[1])
+        X, Y = np.meshgrid(x, y)
+        xy = np.column_stack((X.ravel(), Y.ravel()))
+        tr = self.bg_img_item.ax.transData.inverted().transform(xy)
+
+        theta_grid = self.bg_img_item.theta
+        r_grid = self.bg_img_item.r
+        dt = np.diff(theta_grid[0]).mean()
+        dr = abs(np.diff(r_grid[:, 0]).mean())
+        theta_bins = np.concatenate((theta_grid[0] - dt / 2, [theta_grid[0, -1] + dt / 2]))
+        r_bins = np.concatenate(([r_grid[0, 0] + dr / 2], r_grid[:, 0] - dr / 2))[::-1]
+
+        res = binned_statistic_2d(tr[:, 0], tr[:, 1], label_img.ravel(), bins=[theta_bins, r_bins])
+        labels = res.statistic.T.reshape(theta_grid.shape)[::-1] > .5
+        return labels
+
+    def set_kernel(self, size):
         self.centerValue = int((size - 1) / 2)
         self.kern = np.zeros((size, size, 3), dtype=np.uint8)
         self.mask = np.zeros((size, size, 3), dtype=np.uint8)
         y, x = np.mgrid[-self.centerValue:size - self.centerValue, -self.centerValue:size - self.centerValue]
         self.mask[:, :, :] = (x * x + y * y <= (size - 1) / 2 * (size - 1) / 2)[:, :, None]
-        self.kern[:, :, DrawingImage.colors[self.c]] = 255
+        self.kern[:, :, self.color_channel] = 255
 
     def mouseClickEvent(self, event):
         if event.button() == Qt.LeftButton:

@@ -3,3 +3,5 @@ pyqt5
 pyqtgraph
 h5py
 scipy
+pytest
+matplotlib
