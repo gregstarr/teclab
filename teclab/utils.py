@@ -74,7 +74,6 @@ def update_done_list(fn, done_list: list, current_map):
     index_tuple = (int(current_map['year']), int(current_map['month']), int(current_map['index']))
     if not current_map['unsure'] and index_tuple not in done_list:
         done_list.append(index_tuple)
-        print(done_list)
         with open(fn, 'w') as f:
             json.dump({'list': done_list}, f)
 

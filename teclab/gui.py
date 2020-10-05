@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import *
-from PyQt5 import QtCore
+from PyQt5 import QtCore, QtGui
 import pyqtgraph as pg
 from pyqtgraph import parametertree
 import numpy as np
@@ -14,15 +14,27 @@ pg.setConfigOption('foreground', 'k')
 
 param_descriptor = [
     {
-        'name': 'Basic Params',
+        'name': 'Image',
         'type': 'group',
         'children': [
-            {'name': 'Brush Size', 'type': 'int', 'value': 5},
-            {'name': 'Unsure', 'type': 'bool', 'value': False},
-            {'name': 'vmin', 'type': 'int', 'value': 0},
-            {'name': 'vmax', 'type': 'int', 'value': 20},
+            {'name': 'vmin', 'type': 'float', 'value': 0},
+            {'name': 'vmax', 'type': 'float', 'value': 20},
         ]
-    }
+    },
+    {
+        'name': 'Editing',
+        'type': 'group',
+        'children': [
+            {'name': 'Brush Size', 'type': 'int', 'value': 15},
+        ]
+    },
+    {
+        'name': 'Misc',
+        'type': 'group',
+        'children': [
+            {'name': 'Unsure', 'type': 'bool', 'value': False},
+        ]
+    },
 ]
 
 
@@ -31,6 +43,7 @@ class Gui(QMainWindow):
     def __init__(self, app, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.app = app
+        self.pcm_params = {'vmin': 0, 'vmax': 20}
 
         splitter = QSplitter()
 
@@ -38,28 +51,31 @@ class Gui(QMainWindow):
         drawing_area_widget = QWidget(splitter)  # container widget
         drawing_area_layout = QVBoxLayout(drawing_area_widget)  # vertical layout
         # graphics area
-        view = pg.GraphicsView(drawing_area_widget)
-        drawing_area_layout.addWidget(view)
-        viewbox = pg.ViewBox(lockAspect=True, invertY=False, enableMenu=False)
-        view.setCentralItem(viewbox)
+        graphics_layout = pg.GraphicsLayoutWidget(drawing_area_widget)
+        drawing_area_layout.addWidget(graphics_layout)
+        self.viewbox = graphics_layout.addViewBox(lockAspect=True, invertY=False, enableMenu=False)
         self.tec_map_img = image_items.TecMapImageItem(config.theta_grid, config.radius_grid)
-        viewbox.addItem(self.tec_map_img)
+        self.viewbox.addItem(self.tec_map_img)
         self.draw_img = image_items.DrawingImage('r', self.tec_map_img)
-        viewbox.addItem(self.draw_img)
-        hover_img = image_items.HoverImage(np.zeros((1000, 1000)))
-        viewbox.addItem(hover_img)
+        self.viewbox.addItem(self.draw_img)
+        self.hover_img = image_items.HoverImage(np.zeros((1000, 1000)))
+        self.viewbox.addItem(self.hover_img)
         # Buttons
         button_area_widget = QWidget(drawing_area_widget)
         drawing_area_layout.addWidget(button_area_widget)
         button_area_layout = QHBoxLayout(button_area_widget)
-        save_button = QPushButton("Save")  # UNSURE
-        button_area_layout.addWidget(save_button)
-        save_button.pressed.connect(self.app.map_save)
-        save_button.setFocusPolicy(QtCore.Qt.NoFocus)
-        next_button = QPushButton("Next")  # NEXT
-        button_area_layout.addWidget(next_button)
-        next_button.pressed.connect(self.app.map_next)
-        next_button.setFocusPolicy(QtCore.Qt.NoFocus)
+        self._add_button("Clean", button_area_layout, self.map_clean)
+        self._add_button("Save", button_area_layout, self.app.map_save)
+        self._add_button("Next", button_area_layout, self.app.map_next)
+
+        # cross section plot
+        self.cross_section_plot = graphics_layout.addPlot()
+        self.cross_section_plot.setMaximumWidth(300)
+        self.cross_section_plot.setLimits(minXRange=10, maxXRange=40, yMin=30, yMax=90, xMin=0)
+        self.cross_section_line = self.cross_section_plot.plot()
+        self.cross_section_mlat = pg.InfiniteLine(angle=0)
+        self.cross_section_plot.addItem(self.cross_section_mlat)
+        self.proxy = pg.SignalProxy(self.hover_img.scene().sigMouseMoved, rateLimit=60, slot=self.mouseMoved)
 
         # status bar
         self.status_bar = QStatusBar()
@@ -85,15 +101,38 @@ class Gui(QMainWindow):
         self.setGeometry(100, 100, 1200, 600)
         self.show()
 
+    def mouseMoved(self, evt):
+        pos = evt[0]
+        if self.hover_img.sceneBoundingRect().contains(pos) and self.app.tec_map is not None:
+            mousePoint = self.viewbox.mapSceneToView(pos)
+            t, r = self.tec_map_img.ax.transData.inverted().transform((mousePoint.x(), mousePoint.y()))
+            if t < config.theta_vals.min():
+                t += 2 * np.pi
+            elif t > config.theta_vals.max():
+                t -= 2 * np.pi
+            t_ind = np.argmin(abs(config.theta_vals - t))
+            data = np.nanmean(self.app.tec_map[:, t_ind-3:t_ind+4], axis=1)
+            m = 3
+            pad_width = (m - 1) // 2
+            data = np.pad(data, (pad_width, pad_width), mode='edge')
+            data = np.nanmedian(np.column_stack([data[i:data.shape[0] + 1 - m + i] for i in range(m)]), axis=1)
+            self.cross_section_line.setData(data, 90 - config.radius_vals)
+            self.cross_section_mlat.setPos(90 - r)
+
     def get_labels(self):
         return self.draw_img.get_labels()
 
     def update_map_indicator(self):
         self.status_bar.showMessage(self.app.map_indicator)
 
-    def update_tec_map(self, tec_map):
-        self.tec_map_img.set_tec_map(tec_map)
-        self.draw_img.reset_img()
+    def update_tec_map(self, reset=False):
+        self.tec_map_img.set_tec_map(self.app.tec_map, **self.pcm_params)
+        if reset:
+            self.draw_img.reset_img()
+            self.param_object.child('Misc', 'Unsure').setValue(False)
+
+    def map_clean(self):
+        print("clean")
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Space:
@@ -101,14 +140,22 @@ class Gui(QMainWindow):
         event.accept()
 
     def parameter_changed(self, param, changes):
-        print("tree changes:")
         for param, change, data in changes:
             path = self.param_object.childPath(param)
-            if path is not None:
-                childName = '.'.join(path)
-            else:
-                childName = param.name()
-            print('  parameter: %s' % childName)
-            print('  change:    %s' % change)
-            print('  data:      %s' % str(data))
-            print('  ----------')
+            if path[0] == 'Image':
+                self.pcm_params[path[1]] = data
+                self.update_tec_map()
+            if path[0] == 'Editing':
+                if path[1] == 'Brush Size':
+                    self.draw_img.set_kernel(data)
+                    self.hover_img.set_kernel(data)
+            if path[0] == 'Misc':
+                if path[1] == 'Unsure':
+                    self.app.current_map['unsure'] = data
+
+    def _add_button(self, name, layout, callback, no_focus=True):
+        button = QPushButton(name)
+        layout.addWidget(button)
+        button.pressed.connect(callback)
+        if no_focus:
+            button.setFocusPolicy(QtCore.Qt.NoFocus)

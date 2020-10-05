@@ -20,7 +20,7 @@ grid_file = os.path.join(data_base_dir, "grid.h5")
 with h5py.File(grid_file, 'r') as f:
     mlt_vals = f['mlt'][()]
     mlat_vals = f['mlat'][()]
-theta_vals = np.pi * mlt_vals / 12
+theta_vals = np.pi * (mlt_vals - 6) / 12
 radius_vals = 90 - mlat_vals
 theta_grid, radius_grid = np.meshgrid(theta_vals, radius_vals)
 

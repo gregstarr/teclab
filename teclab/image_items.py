@@ -7,6 +7,10 @@ from scipy.stats import binned_statistic_2d
 from teclab import utils
 
 
+class PolarImageItem(pg.ImageItem):
+    pass
+
+
 class TecMapImageItem(pg.ImageItem):
 
     def __init__(self, theta, r, **kwargs):
@@ -19,15 +23,15 @@ class TecMapImageItem(pg.ImageItem):
         rgba = self.update_and_get_pixels()
         super().__init__(rgba, opacity=1, border=pg.mkPen('r', width=3), **kwargs)
 
-    def set_tec_map(self, tec_map_data):
-        rgba = self.update_and_get_pixels(tec_map_data)
+    def set_tec_map(self, tec_map_data, **pcm_kwargs):
+        rgba = self.update_and_get_pixels(tec_map_data, **pcm_kwargs)
         self.setImage(rgba)
 
-    def update_and_get_pixels(self, polar_img=None):
+    def update_and_get_pixels(self, polar_img=None, **pcm_kwargs):
         self.ax.clear()
         if polar_img is not None:
-            self.ax.pcolormesh(self.theta, self.r, polar_img, vmin=0, vmax=20, shading='nearest')
-            self.ax.grid()
+            self.ax.pcolormesh(self.theta, self.r, polar_img, shading='nearest', **pcm_kwargs)
+        self.format_polar_mag_ax()
         self.fig.patch.set_alpha(0)
         self.ax.patch.set_alpha(0)
         self.fig.canvas.draw()
@@ -35,14 +39,27 @@ class TecMapImageItem(pg.ImageItem):
         plt.close(self.fig)
         return np.swapaxes(rgba[::-1], 0, 1)
 
+    def format_polar_mag_ax(self):
+        self.ax.tick_params(axis='both', which='both', bottom=False, top=False, left=False, right=False, labelbottom=False,
+                       labeltop=False, labelleft=False, labelright=False)
+        self.ax.set_ylim(0, 60)
+        self.ax.set_xticks(np.arange(8) * np.pi / 4)
+        self.ax.set_xticklabels((np.arange(8) * 3 + 6) % 24)
+        self.ax.set_yticks([10, 20, 30, 40, 50])
+        self.ax.set_yticklabels([80, 70, 60, 50, 40])
+        self.ax.grid()
+        self.ax.tick_params(axis='x', which='both', bottom=True, labelbottom=True)
+        self.ax.tick_params(axis='y', which='both', left=True, labelleft=True, width=0, length=0)
+        self.ax.set_rlabel_position(80)
+
 
 class HoverImage(pg.ImageItem):
 
     def __init__(self, image=None, **kargs):
         super().__init__(image, opacity=1, compositionMode=pg.QtGui.QPainter.CompositionMode_Plus, **kargs)
-        self.setKernel(5)
+        self.set_kernel(15)
 
-    def setKernel(self, size):
+    def set_kernel(self, size):
         self.centerValue = int((size - 1) / 2)
         self.kern = np.zeros((size, size), dtype=np.uint8) * 255
         y, x = np.mgrid[-self.centerValue:size - self.centerValue, -self.centerValue:size - self.centerValue]
@@ -68,7 +85,7 @@ class DrawingImage(pg.ImageItem):
         super().__init__(np.zeros(self.bg_img_item.image.shape[:2] + (3,)),
                          compositionMode=pg.QtGui.QPainter.CompositionMode_Plus, opacity=1, **kargs)
         self.color_channel = DrawingImage.colors[c]
-        self.set_kernel(5)
+        self.set_kernel(15)
         self.x = None
         self.y = None
 
@@ -89,9 +106,11 @@ class DrawingImage(pg.ImageItem):
         dr = abs(np.diff(r_grid[:, 0]).mean())
         theta_bins = np.concatenate((theta_grid[0] - dt / 2, [theta_grid[0, -1] + dt / 2]))
         r_bins = np.concatenate(([r_grid[0, 0] + dr / 2], r_grid[:, 0] - dr / 2))[::-1]
+        tr[tr[:, 0] > theta_bins.max(), 0] -= 2 * np.pi
+        tr[tr[:, 0] < theta_bins.min(), 0] += 2 * np.pi
 
         res = binned_statistic_2d(tr[:, 0], tr[:, 1], label_img.ravel(), bins=[theta_bins, r_bins])
-        labels = res.statistic.T.reshape(theta_grid.shape)[::-1] > .5
+        labels = res.statistic.T[::-1] > .5
         return labels
 
     def set_kernel(self, size):
