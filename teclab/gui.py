@@ -111,12 +111,15 @@ class Gui(QMainWindow):
             elif t > config.theta_vals.max():
                 t -= 2 * np.pi
             t_ind = np.argmin(abs(config.theta_vals - t))
-            data = np.nanmean(self.app.tec_map[:, t_ind-3:t_ind+4], axis=1)
+            lon_avg = 3
+            t_ind += lon_avg
+            padded_tec_map = np.pad(self.app.tec_map, ((0, 0), (lon_avg, lon_avg)), mode='edge')
+            cross_section_vals = np.nanmean(padded_tec_map[:, t_ind-lon_avg:t_ind+lon_avg+1], axis=1)
             m = 3
             pad_width = (m - 1) // 2
-            data = np.pad(data, (pad_width, pad_width), mode='edge')
-            data = np.nanmedian(np.column_stack([data[i:data.shape[0] + 1 - m + i] for i in range(m)]), axis=1)
-            self.cross_section_line.setData(data, 90 - config.radius_vals)
+            cross_section_vals = np.pad(cross_section_vals, (pad_width, pad_width), mode='edge')
+            cross_section_vals = np.nanmedian(np.column_stack([cross_section_vals[i:cross_section_vals.shape[0] + 1 - m + i] for i in range(m)]), axis=1)
+            self.cross_section_line.setData(cross_section_vals, 90 - config.radius_vals)
             self.cross_section_mlat.setPos(90 - r)
 
     def get_labels(self):

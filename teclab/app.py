@@ -46,7 +46,7 @@ class App:
         import matplotlib.pyplot as plt
         fig = plt.figure()
         ax = fig.add_subplot(projection='polar')
-        ax.pcolormesh(config.theta_grid, config.radius_grid, labels, shading='flat')
+        ax.pcolormesh(config.theta_grid, config.radius_grid, labels, shading='auto')
         plt.show()
 
     def map_next(self):
