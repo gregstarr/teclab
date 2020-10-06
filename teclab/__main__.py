@@ -5,7 +5,7 @@ import datetime
 import teclab
 
 
-date_string = datetime.datetime.now().strftime("%Y%M%d_%H%m%S")
+date_string = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 log_fn = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'logs', f'{date_string}_info.log'))
 logging.basicConfig(filename=log_fn,
                     level=logging.INFO,
