@@ -2,7 +2,7 @@ import logging
 import os
 import datetime
 
-import teclab
+from teclab.app import App
 
 
 date_string = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -12,5 +12,5 @@ logging.basicConfig(filename=log_fn,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     filemode='w')
 
-app = teclab.App()
+app = App()
 app.start()

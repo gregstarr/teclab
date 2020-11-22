@@ -1,4 +1,3 @@
-from scipy.ndimage import map_coordinates
 import numpy as np
 import glob
 import datetime
@@ -100,11 +99,26 @@ def update_unsure_list(fn, unsure_list: list, current_map):
 
 def open_map(current_map):
     index = current_map['index']
-    with h5py.File(current_map['h5_file'], 'r') as f:
+    tec, labels, start_time = open_h5(current_map['h5_file'])
+    return tec[:, :, index], labels[:, :, index], start_time[index]
+
+
+def open_h5(fn):
+    with h5py.File(fn, 'r') as f:
         tec = f['tec'][()]
         labels = f['labels'][()]
         start_time = f['start_time'][()]
-    return tec[:, :, index], labels[:, :, index], start_time[index]
+    return tec, labels, start_time
+
+
+def get_random_map_id(start_time=np.datetime64("2013-12-03T00:00:00"), end_time=np.datetime64("2019-12-30T00:00:00")):
+    dset_range = (end_time.astype('datetime64[h]') - start_time.astype('datetime64[h]')).astype(int)
+    hours_offset = np.random.randint(0, dset_range)
+    map_time = start_time + np.timedelta64(hours_offset, 'h')
+    year = map_time.astype('datetime64[Y]').astype(int) + 1970
+    month = map_time.astype('datetime64[M]').astype(int) % 12 + 1
+    index = (map_time.astype('datetime64[h]') - map_time.astype('datetime64[M]')).astype(int)
+    return year, month, index
 
 
 if __name__ == "__main__":

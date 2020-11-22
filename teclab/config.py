@@ -13,6 +13,13 @@ if TEST:
     data_base_dir = os.path.join(data_base_dir, 'test')
 data_file_pattern = "{year:04d}_{month:02d}_tec.h5"
 data_file_name = os.path.join(data_base_dir, data_file_pattern)
+
+
+def data(year, month):
+    fn = data_file_name.format(year=year, month=month)
+    return utils.open_h5(fn)
+
+
 # get tree of possible maps
 map_tree = utils.get_map_tree(data_base_dir)
 
@@ -20,6 +27,7 @@ grid_file = os.path.join(data_base_dir, "grid.h5")
 with h5py.File(grid_file, 'r') as f:
     mlt_vals = f['mlt'][()]
     mlat_vals = f['mlat'][()]
+mlt_grid, mlat_grid = np.meshgrid(mlt_vals, mlat_vals)
 theta_vals = np.pi * (mlt_vals - 6) / 12
 radius_vals = 90 - mlat_vals
 theta_grid, radius_grid = np.meshgrid(theta_vals, radius_vals)
